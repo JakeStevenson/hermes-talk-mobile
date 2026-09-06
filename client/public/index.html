@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Talk</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <h1>Talk</h1>
+      <div class="lane" id="lane">checking…</div>
+    </header>
+
+    <section class="status" id="status">
+      <div class="status-dot" id="statusDot"></div>
+      <div class="status-text" id="statusText">Initializing…</div>
+    </section>
+
+    <!-- Unmissable mute banner: shown while muted -->
+    <div class="mute-banner" id="muteBanner" style="display:none;">
+      <span class="mute-banner-icon">🔇</span>
+      <span class="mute-banner-text">MUTED — tap Unmute to talk</span>
+    </div>
+
+    <section class="control">
+      <button class="mic-button" id="micButton" disabled>
+        <span class="mic-icon" id="micIcon">🎙️</span>
+        <span class="mic-label" id="micLabel">Start</span>
+      </button>
+      <p class="hint" id="hint">Tap to start a live voice session</p>
+    </section>
+
+    <div class="controls-row" id="controlsRow" style="display:none;">
+      <button class="pill" id="muteButton" style="display:none;">Mute</button>
+      <button class="pill pill-stop" id="stopButton" style="display:none;">End</button>
+      <button class="pill" id="newSessionButton" style="display:none;">New Session</button>
+    </div>
+
+    <!-- Token gate -->
+    <div class="token-box" id="tokenBox" style="display:none;">
+      <p class="token-msg">This UI needs hermes-talk's token.</p>
+      <input type="password" id="tokenInput" placeholder="TALK_DASHBOARD_TOKEN" autocomplete="off">
+      <button class="pill" id="tokenButton">Use token</button>
+    </div>
+
+    <!-- HTTPS warning for mobile -->
+    <div class="token-box warn" id="httpsWarn" style="display:none;">
+      <p>Mobile needs HTTPS. Open this page over a secure (https) connection.</p>
+    </div>
+
+    <section class="panels">
+      <div class="panel">
+        <div class="panel-head">Transcript</div>
+        <div class="transcript" id="transcript">
+          <div class="empty" id="transcriptEmpty">Nothing yet. Start and speak.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">Background runs</div>
+        <div class="runs" id="runs">
+          <div class="empty">Nothing running.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="conn" id="conn">
+    <span class="conn-dot" id="connDot"></span>
+    <span id="connText">Disconnected</span>
+  </footer>
+
+  <script src="/static/talk.js?v=2"></script>
+  <script src="/static/app.js?v=2"></script>
+</body>
+</html>
