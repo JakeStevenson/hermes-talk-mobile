@@ -4,10 +4,13 @@
  * swap in any model (Haru today, a custom Mercer model later) without touching
  * the UI wiring.
  *
- * Lip-sync strategy: the remote WebRTC track is tapped by an independent
- * AnalyserNode (meter-only — playback still goes through the hidden <audio>
- * element, untouched). Per-frame RMS is mapped to the model's mouthOpenY.
- * The model's native auto-blink + an Idle motion loop keep it alive when quiet.
+ * Lip-sync strategy: the agent's audio is metered by an AnalyserNode and
+ * per-frame RMS is smoothed into `energySmooth`, which is written to Haru's
+ * mouth param (ParamMouthOpenY) inside the internal model's
+ * "beforeModelUpdate" event — the point in the PIXI update cycle right before
+ * coreModel.update() renders, so the value can't be clobbered by the motion
+ * manager. The model's native auto-blink + an Idle motion keep it alive when
+ * quiet.
  *
  * IMPORTANT: this function NEVER throws synchronously. PIXI/WebGL init is
  * fallible (headless, zero-size canvas, GPU unavailable), and a synchronous
@@ -82,6 +85,7 @@
       let energySmooth = 0;      // 0..1 smoothed RMS
       let currentState = "idle";
       let lastFitW = 0, lastFitH = 0;   // last renderer size we fit against
+      let mouthIdx = -1;         // core-model index of ParamMouthOpenY
 
       // Mouth smoothing: faster attack than release so lips snap open but ease
       // closed (feels natural, avoids flutter on low-volume tails).
@@ -100,18 +104,43 @@
         return Math.sqrt(sum / DATA.length);
       }
 
+      // Resolve + cache the mouth param index once so we can guard the write.
+      function paramInfo(core) {
+        if (!core) return -1;
+        if (mouthIdx >= 0) return mouthIdx;
+        try { mouthIdx = Number(core.getParameterIndex("ParamMouthOpenY")) || -1; }
+        catch (e) { mouthIdx = -1; }
+        return mouthIdx;
+      }
+
+      // THE one real lip-sync write. Runs inside the internal model's update
+      // cycle via the "beforeModelUpdate" event — AFTER the motion manager has
+      // reset ParamMouthOpenY for this frame and immediately BEFORE
+      // coreModel.update() renders. A rAF write outside the cycle always races
+      // the render and lands too late (mouth never moved for exactly that
+      // reason). weight=1 = full overwrite of the param this frame.
+      function attachLipsyncHook() {
+        const im = model && model.internalModel;
+        if (!im || !im.on) return;
+        im.on("beforeModelUpdate", function applyMouth() {
+          const core = im.coreModel;
+          if (!core || !core.setParameterValueById || paramInfo(core) < 0) return;
+          core.setParameterValueById("ParamMouthOpenY", energySmooth, 1);
+        });
+      }
+
       function tick() {
         raf = requestAnimationFrame(tick);
         if (!model || !model.internalModel) return;
         fitModel();                          // reconcile layout drift (iOS settle)
         let target = 0;
+        let rms = 0;
         if (analyser) {
-          const rms = rmsFromAnalyser();
+          rms = rmsFromAnalyser();
           if (rms > MIN_RMS) target = clamp((rms - MIN_RMS) / (MAX_RMS - MIN_RMS), 0, 1);
         }
         const k = target > energySmooth ? ATTACK : RELEASE;
         energySmooth += (target - energySmooth) * k;
-        model.internalModel.mouthOpenY = energySmooth;
       }
 
       function stopLoop() {
@@ -162,7 +191,8 @@
         if (analyser) return;
         const target = clamp(rms, 0, 1);
         energySmooth += (target - energySmooth) * (target > energySmooth ? ATTACK : RELEASE);
-        if (model && model.internalModel) model.internalModel.mouthOpenY = energySmooth;
+        // The mouth write itself happens in the internal model's
+        // "beforeModelUpdate" hook (attachLipsyncHook) — keep it in one place.
       }
 
       function setState(state) {
@@ -184,28 +214,30 @@
         if (!cw || !ch) return;
         if (cw === lastFitW && ch === lastFitH) return;  // nothing moved
         lastFitW = cw; lastFitH = ch;
-        if (!window.__L2D_DBG__) {
-          window.__L2D_DBG__ = true;
-          console.log("[live2dAvatar] fit:", cw + "x" + ch,
-            "dpr=" + (window.devicePixelRatio || 1),
-            "renderer=" + app.renderer.width + "x" + app.renderer.height);
-        }
         const lb = model.getLocalBounds();
         const nw = lb.width || 2;          // natural width (px at scale 1)
         const nh = lb.height || 2;         // natural height (px at scale 1)
-        const fit = Math.min(cw / nw, ch / nh) * 0.9;
-        model.scale.set(fit);
-        model.x = cw / 2;
-        model.y = ch;
+        // Full-body fit (what we previously wanted)...
+        const fullFit = Math.min(cw / nw, ch / nh);
+        // ...zoomed in for a face close-up: anchor at TOP-center so the head
+        // sits up top and large, filling the frame. FACE_ZOOM trades body for
+        // face; ~2.7x brings her head+shoulders into the canvas.
+        const scale = fullFit * 2.7;
+        model.scale.set(scale);
+        model.x = cw / 2;                  // head centered horizontally
+        model.y = ch * 0.05;               // top of the head just inside the frame
       }
 
       return PIXI.live2d.Live2DModel.from(modelUrl)
         .then((m) => {
           model = m;
           model.autoInteract = false;        // we own taps (avatar doubles as button)
-          model.anchor.set(0.5, 0.9);        // near the feet so it stands on the base
+          // Face-zoom framing: anchor near the TOP-center (head/chest), not the
+          // feet, so fitModel can pin her head up top and scale it large.
+          model.anchor.set(0.5, 0.08);
           app.stage.addChild(model);
-          fitModel();                        // center + fit using current size
+          attachLipsyncHook();           // the real mouth write lives here
+          fitModel();                    // center + fit using current size
           window.addEventListener("resize", fitModel);
           setState("idle");
           startLoop();
