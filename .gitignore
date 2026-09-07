@@ -12,3 +12,9 @@ __pycache__/
 
 # Custom Live2D models (private — repo ships the default free Haru model)
 client/public/live2d/Mercer/
+
+# Live2D proprietary runtime + sample model — NOT vendored, fetched by
+# scripts/fetch-vendor.sh (see README). Keep them out of git.
+client/public/vendor/live2dcubismcore.min.js
+client/public/vendor/live2d.min.js
+client/public/live2d/Haru/

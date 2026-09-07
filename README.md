@@ -20,8 +20,12 @@ The frontend is a plain vanilla-JS lift of the dashboard's `TalkTransport` (dupl
 ## Run
 
 ```bash
-# Requires a hermes-talk install (the plugin root is resolved from HERMES_HOME
-# or TALK_PLUGIN_ROOT) and HERMES_HOME/.env with API_SERVER_KEY + TALK_VOICE.
+# 1) Fetch the Live2D proprietary runtime + Haru sample model (NOT vendored —
+#     they're Live2D's proprietary assets, see LICENSE note below).
+./scripts/fetch-vendor.sh
+
+# 2) Requires a hermes-talk install (the plugin root is resolved from HERMES_HOME
+#    or TALK_PLUGIN_ROOT) and HERMES_HOME/.env with API_SERVER_KEY + TALK_VOICE.
 pip install -r requirements.txt   # fastapi, uvicorn, python-dotenv
 python server.py                   # binds 127.0.0.1:3010 (TALK_MOBILE_PORT to change)
 ```
@@ -32,15 +36,24 @@ Set `TALK_DASHBOARD_TOKEN` in the environment (or `~/.hermes/.env`) so the talk 
 
 ```
 server.py                 # mounts the hermes-talk router + serves /static
+scripts/fetch-vendor.sh   # downloads the Live2D runtime + Haru model (proprietary)
 client/public/
   index.html              # the page; bump ?v=N cache-busters to deploy
   talk.js                 # TalkTransport — lifted from the dashboard bundle
   app.js                  # controller wiring transport ↔ UI ↔ avatar
   live2d-avatar.js        # Live2D avatar + lip-sync (AnalyserNode RMS → ParamMouthOpenY)
-  live2d/Haru/            # default free Live2D model
-  vendor/                 # pixi, live2d cubism runtimes, pixi-live2d-display
+  live2d/Haru/            # default free Live2D model (fetched, not vendored)
+  vendor/                 # pixi + pixi-live2d-display (MIT, vendored)
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+The code in this repo is MIT — see [LICENSE](LICENSE).
+
+**The Live2D runtime and Haru model are NOT MIT.** They are Live2D's
+proprietary assets, distributed under the [Live2D Proprietary Software License
+Agreement](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html)
+and the [Free Material License Agreement](https://www.live2d.com/eula/live2d-free-material-license-agreement_en.html).
+They are not vendored here; `scripts/fetch-vendor.sh` downloads them from
+Live2D's official sources so each user accepts Live2D's own terms. Review
+those terms before distributing your app.
