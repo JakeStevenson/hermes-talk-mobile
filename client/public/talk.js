@@ -178,6 +178,7 @@ class TalkTransport {
     peer.addEventListener("track", (event) => {
       const stream = event.streams[0];
       if (this.audio && stream) this.audio.srcObject = stream;
+      if (stream && this.cb.onRemoteStream) this.cb.onRemoteStream(stream);
     });
 
     const media = await navigator.mediaDevices.getUserMedia({ audio: true });

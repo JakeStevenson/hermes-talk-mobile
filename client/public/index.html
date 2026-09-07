@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Talk</title>
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗨️</text></svg>">
 </head>
 <body>
   <main class="app">
@@ -28,10 +28,14 @@
     </div>
 
     <section class="control">
-      <button class="mic-button" id="micButton" disabled>
-        <span class="mic-icon" id="micIcon">🎙️</span>
-        <span class="mic-label" id="micLabel">Start</span>
-      </button>
+      <!-- Live2D avatar replaces the plain mic emoji. Canvas is the hero visual;
+           the underlying button keeps tap-to-talk semantics for a11y/fallback. -->
+      <div class="avatar-wrap" id="avatarWrap">
+        <canvas id="avatarCanvas" class="avatar-canvas"></canvas>
+        <span class="avatar-badge" id="avatarBadge">🎙️</span>
+        <button class="mic-hit" id="micButton" disabled aria-label="Start voice session">
+        </button>
+      </div>
       <p class="hint" id="hint">Tap to start a live voice session</p>
     </section>
 
@@ -74,7 +78,15 @@
     <span id="connText">Disconnected</span>
   </footer>
 
-  <script src="/static/talk.js?v=2"></script>
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/vendor/pixi.min.js"></script>
+  <!-- Both Live2D Cubism runtimes MUST load before pixi-live2d-display:
+       core2 sets window.Live2D, core4 sets window.Live2DCubismCore.
+       The display bundle hard-throws at eval if window.Live2D is missing. -->
+  <script src="/static/vendor/live2d.min.js"></script>
+  <script src="/static/vendor/live2dcubismcore.min.js"></script>
+  <script src="/static/vendor/pixi-live2d-display.min.js"></script>
+  <script src="/static/live2d-avatar.js?v=4"></script>
+  <script src="/static/talk.js?v=3"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 </html>

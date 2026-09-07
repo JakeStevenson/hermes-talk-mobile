@@ -15,10 +15,10 @@
     statusText: $("statusText"),
     muteBanner: $("muteBanner"),
     micButton: $("micButton"),
-    micIcon: $("micIcon"),
-    micLabel: $("micLabel"),
-    hint: $("hint"),
+    avatarBadge: $("avatarBadge"),
+    avatarCanvas: $("avatarCanvas"),
     controlsRow: $("controlsRow"),
+    hint: $("hint"),
     muteButton: $("muteButton"),
     stopButton: $("stopButton"),
     newSessionButton: $("newSessionButton"),
@@ -55,10 +55,22 @@
     setStatus(text, false);
   }
 
+  // -- Live2D avatar ---------------------------------------------------------
+  let avatar = null;
+  function setAvatarState(state) {
+    if (avatar && avatar.setState) avatar.setState(state);
+  }
+  function setAvatarMuted(m) {
+    const badge = els.avatarBadge;
+    if (!badge) return;
+    // Only surface the mic/muted state while the avatar is gone (idle/starting
+    // is the avatar showing itself — no badge needed). Show 🔇 while muted.
+    badge.textContent = m ? "🔇" : "";
+  }
+
   function renderButton() {
     if (phase === "active") {
-      els.micLabel.textContent = muted ? "Muted" : "Listening";
-      els.micIcon.textContent = muted ? "🔇" : "🎙️";
+      setAvatarState("active");
       els.micButton.classList.toggle("muted", muted);
       els.micButton.disabled = false;
       els.controlsRow.style.display = "flex";
@@ -66,22 +78,23 @@
       els.stopButton.style.display = "inline-block";
       els.newSessionButton.style.display = "inline-block";
       els.muteButton.textContent = muted ? "Unmute" : "Mute";
-      els.hint.textContent = muted ? "Mic is off — tap Unmute to talk" : "Tap the mic to end the session";
+      els.hint.textContent = muted ? "Mic is off — tap Unmute to talk" : "Tap to end the session";
       els.muteBanner.style.display = muted ? "flex" : "none";
+      setAvatarMuted(muted);
     } else if (phase === "starting") {
-      els.micLabel.textContent = "Connecting…";
-      els.micIcon.textContent = "⏳";
+      setAvatarState("starting");
       els.micButton.disabled = true;
       els.controlsRow.style.display = "none";
       els.muteBanner.style.display = "none";
       els.hint.textContent = "Starting a live voice session…";
+      setAvatarMuted(false);
     } else {
-      els.micLabel.textContent = "Start";
-      els.micIcon.textContent = "🎙️";
+      setAvatarState("idle");
       els.micButton.disabled = !(status && status.configured);
       els.controlsRow.style.display = "none";
       els.muteBanner.style.display = "none";
       els.hint.textContent = "Tap to start a live voice session";
+      setAvatarMuted(false);
     }
   }
 
@@ -205,6 +218,11 @@
         onStatus: (s) => setStatus(s, true),
         onTranscript: appendTranscript,
         onError: setError,
+        onRemoteStream: (stream) => {
+          // Boot the avatar first (async), then feed it the remote track so a
+          // stream that arrives before load finishes isn't dropped.
+          bootAvatar().then((a) => { if (a && a.setEnergyStream) a.setEnergyStream(stream); });
+        },
       });
       transport = t;
       await t.start();
@@ -274,7 +292,23 @@
 
   // -- wire -------------------------------------------------------------
 
-  els.micButton.addEventListener("click", () => void startTalk());
+  // Boot the Live2D avatar lazily on first mic tap (browser autoplay policies
+  // don't matter for a canvas; we just avoid loading it before it's needed).
+  let avatarPromise = null;
+  function bootAvatar() {
+    if (avatarPromise) return avatarPromise;
+    avatarPromise = initLive2dAvatar(els.avatarCanvas, {
+      base: "/static/live2d",
+    }).then((a) => {
+      avatar = a;
+      setAvatarState("idle");
+      return a;
+    });
+    return avatarPromise;
+  }
+  els.micButton.addEventListener("click", () => {
+    void startTalk();
+  });
   els.stopButton.addEventListener("click", stopTalk);
   els.muteButton.addEventListener("click", toggleMute);
   els.newSessionButton.addEventListener("click", newSession);
@@ -287,6 +321,10 @@
   }
 
   void refresh();
+
+  // Boot the Live2D avatar lazily, AFTER the readiness check so a slow/absent
+  // avatar never delays the status UI. If it fails it resolves a no-op API.
+  void bootAvatar();
 
   // Poll runs while the page lives (dashboard behavior).
   setInterval(() => void refreshRuns(), 8000);
