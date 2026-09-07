@@ -160,6 +160,9 @@ class TalkTransport {
     this.pcmPrev = null;
     this.pcmPos = 0;
     this.cascadeFailureLogged = false;
+    // Shared analyser that samples her cascade audio for lip-sync. Created
+    // lazily on first playback; every PCM source routes through it.
+    this.lipSyncAnalyser = null;
   }
 
   async start() {
@@ -545,6 +548,17 @@ class TalkTransport {
     }
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    if (this.cb.onAnalyser) {
+      // Tap her voice for the avatar's mouth: route this source through the
+      // shared analyser (analyser feeds nothing onward — meter only).
+      if (!this.lipSyncAnalyser) {
+        this.lipSyncAnalyser = ctx.createAnalyser();
+        this.lipSyncAnalyser.fftSize = 2048;
+        this.lipSyncAnalyser.smoothingTimeConstant = 0.1;
+        this.cb.onAnalyser(this.lipSyncAnalyser);
+      }
+      source.connect(this.lipSyncAnalyser);
+    }
     source.connect(ctx.destination);
     const at = Math.max(ctx.currentTime || 0, this.pcmNextTime);
     source.start(at);

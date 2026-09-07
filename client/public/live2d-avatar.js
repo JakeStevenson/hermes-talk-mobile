@@ -124,6 +124,7 @@
       // Meter-only sink: consume the remote track for RMS without touching
       // playback. Safe to re-call with a new stream (e.g. after reconnect).
       function setEnergyStream(stream) {
+        if (analyser) return;              // cascade analyser already owns the mouth
         if (audioCtx) {
           try { audioCtx.close(); } catch (e) { /* ignore */ }
           audioCtx = null; analyser = null;
@@ -146,6 +147,17 @@
         }
       }
 
+      // Meter from her actual playback context (cascade PCM path). talk.js
+      // routes each created AudioBufferSource through an analyser to reach here.
+      function setAnalyser(an) {
+        if (audioCtx) {
+          try { audioCtx.close(); } catch (e) { /* ignore */ }
+          audioCtx = null;
+        }
+        analyser = an || null;
+        if (analyser) startLoop();
+      }
+
       function setEnergy(rms) {
         if (analyser) return;
         const target = clamp(rms, 0, 1);
@@ -159,7 +171,7 @@
         try { model.motion("Idle"); } catch (e) { /* non-fatal */ }
       }
 
-      const api = { setEnergy, setEnergyStream, setState, destroy: null };
+      const api = { setEnergy, setEnergyStream, setAnalyser, setState, destroy: null };
 
       // Center + fit the model against the LIVE parent box (not renderer boot
       // state). Reads getBoundingClientRect each frame so any layout change

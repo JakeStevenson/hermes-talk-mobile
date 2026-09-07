@@ -218,9 +218,13 @@
         onStatus: (s) => setStatus(s, true),
         onTranscript: appendTranscript,
         onError: setError,
+        onAnalyser: (an) => {
+          // Feed the avatar her actual playback analyser for lip-sync.
+          bootAvatar().then((a) => { if (a && a.setAnalyser) a.setAnalyser(an); });
+        },
         onRemoteStream: (stream) => {
-          // Boot the avatar first (async), then feed it the remote track so a
-          // stream that arrives before load finishes isn't dropped.
+          // Kept for non-cascade (WebRTC track) sessions — analyser is the
+          // primary path; this is a harmless no-op if cascade never used it.
           bootAvatar().then((a) => { if (a && a.setEnergyStream) a.setEnergyStream(stream); });
         },
       });
