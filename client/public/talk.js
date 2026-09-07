@@ -235,42 +235,65 @@ class TalkTransport {
 
   stop() {
     this.closed = true;
-    if (this.offerAbort) this.offerAbort.abort();
-    this.offerAbort = null;
-    this.abortCascade();
-    if (this.pcmContext) {
-      const ctx = this.pcmContext;
-      this.pcmContext = null;
-      if (ctx.close) Promise.resolve(ctx.close()).catch(() => {});
+    // CRITICAL teardown FIRST, in order, each step guarded so a throw in one
+    // can never skip the rest. (The bug we chased: abortCascade() threw before
+    // the termination send + close, so the channel stayed open and the server
+    // kept listening even though the UI reset to idle.)
+    // 1) Kill the mic so no NEW audio reaches the server.
+    if (this.media) {
+      try {
+        this.media.getTracks().forEach((track) => track.stop());
+      } catch (e) { /* already stopped */ }
+      this.media = null;
     }
-    // Idempotent teardown: every close below throws if the object is already
-    // closed/removed (a dropped connection, or a prior stop). Guard each so
-    // stop() can never throw and strand the UI in "active".
+    // 2) Tell the server to stop: disable turn detection, cancel any in-flight
+    //    response, and CLEAR the input audio buffer (audio already transmitted
+    //    but not yet committed would otherwise be committed as a NEW turn).
+    if (this.channel && this.channel.readyState === "open") {
+      try {
+        this.channel.send(JSON.stringify({
+          type: "session.update",
+          session: {
+            turn_detection: null,
+            input_audio_transcription: { enabled: false },
+          },
+        }));
+        this.channel.send(JSON.stringify({ type: "response.cancel" }));
+        this.channel.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
+      } catch (e) {
+        /* peer already gone — nothing to tell */
+      }
+    }
+    // 3) Close the wire. This is what actually stops the server from listening.
     if (this.channel) {
       try {
         if (this.channel.readyState === "open" || this.channel.readyState === "connecting") {
           this.channel.close();
         }
-      } catch (e) {
-        /* already closed */
-      }
+      } catch (e) { /* already closed */ }
       this.channel = null;
     }
     if (this.peer) {
       try {
         if (this.peer.connectionState !== "closed") this.peer.close();
-      } catch (e) {
-        /* already closed */
-      }
+      } catch (e) { /* already closed */ }
       this.peer = null;
     }
-    if (this.media) {
-      try {
-        this.media.getTracks().forEach((track) => track.stop());
-      } catch (e) {
-        /* already stopped */
-      }
-      this.media = null;
+    // 4) Non-critical cleanup — wrapped so a throw here can't matter.
+    try {
+      if (this.offerAbort) this.offerAbort.abort();
+    } catch (e) { /* no-op */ }
+    this.offerAbort = null;
+    try { this.abortCascade(); } catch (e) { /* no-op */ }
+    if (this.pcmContext) {
+      const ctx = this.pcmContext;
+      this.pcmContext = null;
+      // The lip-sync analyser belongs to this session's AudioContext. If we
+      // don't reset it, the next session reuses the closed analyser (the
+      // `if (!this.lipSyncAnalyser)` guard in playback is then false) and the
+      // avatar's mouth stops moving on every session after the first.
+      this.lipSyncAnalyser = null;
+      if (ctx.close) Promise.resolve(ctx.close()).catch(() => {});
     }
     if (this.audio) {
       try {

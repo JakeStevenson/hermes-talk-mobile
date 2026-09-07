@@ -151,9 +151,12 @@
       }
 
       // Meter-only sink: consume the remote track for RMS without touching
-      // playback. Safe to re-call with a new stream (e.g. after reconnect).
+      // playback. Safe to re-call with a new stream (e.g. after reconnect, or
+      // a NEW session after End). We ALWAYS rebuild for the incoming stream —
+      // the old `if (analyser) return;` guard latched onto a stale analyser
+      // from the previous session, so the second session's stream was never
+      // wired and the mouth stopped moving.
       function setEnergyStream(stream) {
-        if (analyser) return;              // cascade analyser already owns the mouth
         if (audioCtx) {
           try { audioCtx.close(); } catch (e) { /* ignore */ }
           audioCtx = null; analyser = null;
@@ -221,8 +224,10 @@
         const fullFit = Math.min(cw / nw, ch / nh);
         // ...zoomed in for a face close-up: anchor at TOP-center so the head
         // sits up top and large, filling the frame. FACE_ZOOM trades body for
-        // face; ~2.7x brings her head+shoulders into the canvas.
-        const scale = fullFit * 2.7;
+        // face. Haru is a full-body model so 2.7x brings head+shoulders in;
+        // Mercer is already a bust, so she needs ~1.0 (fit the whole bust).
+        const faceZoom = opts.faceZoom || 2.7;
+        const scale = fullFit * faceZoom;
         model.scale.set(scale);
         model.x = cw / 2;                  // head centered horizontally
         model.y = ch * 0.05;               // top of the head just inside the frame
