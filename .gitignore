@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Hermes planning notes (internal, not for public)
+.hermes/
+
+# Custom Live2D models (private — repo ships the default free Haru model)
+client/public/live2d/Mercer/
