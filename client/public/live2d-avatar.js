@@ -48,15 +48,27 @@
     return (function () {
       let app;
       try {
+        // iOS Safari quirk: combining autoDensity + devicePixelRatio > 1 makes
+        // PIXI's logical space diverge from the on-screen canvas (model placed
+        // at renderer center lands bottom-right). Side-step it: fixed resolution
+        // 1 and explicit canvas CSS size, so logical px == CSS px 1:1 everywhere.
         app = new PIXI.Application({
           view: canvasEl,
           transparent: true,
           antialias: true,
           autoStart: true,
-          autoDensity: true,
-          resizeTo: canvasEl.parentElement || canvasEl,
-          resolution: Math.min(window.devicePixelRatio || 1, 2),
+          resolution: 1,
+          autoDensity: false,
         });
+        // Pin the canvas element to its parent's box explicitly so the renderer
+        // matches actual layout on every engine.
+        const parent = canvasEl.parentElement || canvasEl;
+        const rect = parent.getBoundingClientRect();
+        const w = (rect.width || 200) | 0;
+        const h = (rect.height || 200) | 0;
+        app.renderer.resize(w, h);
+        canvasEl.style.width = w + "px";
+        canvasEl.style.height = h + "px";
       } catch (e) {
         console.error("[live2dAvatar] PIXI init failed:", e);
         return Promise.resolve(noopApi());
@@ -69,6 +81,7 @@
       let rafOn = false;
       let energySmooth = 0;      // 0..1 smoothed RMS
       let currentState = "idle";
+      let lastFitW = 0, lastFitH = 0;   // last renderer size we fit against
 
       // Mouth smoothing: faster attack than release so lips snap open but ease
       // closed (feels natural, avoids flutter on low-volume tails).
@@ -90,6 +103,7 @@
       function tick() {
         raf = requestAnimationFrame(tick);
         if (!model || !model.internalModel) return;
+        fitModel();                          // reconcile layout drift (iOS settle)
         let target = 0;
         if (analyser) {
           const rms = rmsFromAnalyser();
@@ -147,14 +161,23 @@
 
       const api = { setEnergy, setEnergyStream, setState, destroy: null };
 
-      // Center + fit the model against the CURRENT renderer size. PIXI reads
-      // the canvas size at boot, but on iOS Safari the layout (dynamic toolbar)
-      // settles AFTER boot — so a size captured at creation can be stale there,
-      // making model.x land off-center. Re-running on resize fixes it.
+      // Center + fit the model against the LIVE parent box (not renderer boot
+      // state). Reads getBoundingClientRect each frame so any layout change
+      // self-corrects, and logs once so we can see the real geometry iOS uses.
       function fitModel() {
         if (!model) return;
-        const cw = app.renderer.width || 1;
-        const ch = app.renderer.height || 1;
+        const rect = (canvasEl.parentElement || canvasEl).getBoundingClientRect();
+        const cw = (rect.width || 200) | 0;
+        const ch = (rect.height || 200) | 0;
+        if (!cw || !ch) return;
+        if (cw === lastFitW && ch === lastFitH) return;  // nothing moved
+        lastFitW = cw; lastFitH = ch;
+        if (!window.__L2D_DBG__) {
+          window.__L2D_DBG__ = true;
+          console.log("[live2dAvatar] fit:", cw + "x" + ch,
+            "dpr=" + (window.devicePixelRatio || 1),
+            "renderer=" + app.renderer.width + "x" + app.renderer.height);
+        }
         const lb = model.getLocalBounds();
         const nw = lb.width || 2;          // natural width (px at scale 1)
         const nh = lb.height || 2;         // natural height (px at scale 1)
