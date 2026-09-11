@@ -104,11 +104,11 @@
     els.transcriptEmpty.style.display = "none";
     const rows = els.transcript.querySelectorAll(".row:not(.dummy)");
     const last = rows.length ? rows[rows.length - 1] : null;
-    if (role === "assistant" && !final && last && last.dataset.role === "assistant" && !last.dataset.final) {
+    if (!final && last && last.dataset.role === role && !last.dataset.final) {
       const span = last.querySelector(".ttext");
       span.textContent = last.dataset.text + text;
       last.dataset.text = last.dataset.text + text;
-    } else if (role === "assistant" && last && last.dataset.role === "assistant" && !last.dataset.final) {
+    } else if (final && last && last.dataset.role === role && !last.dataset.final) {
       const span = last.querySelector(".ttext");
       span.textContent = text;
       last.dataset.text = text;
