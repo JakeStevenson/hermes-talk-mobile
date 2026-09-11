@@ -2,12 +2,35 @@
 
 A standalone, mobile-optimized voice surface for [hermes-talk](https://github.com/TheSmokeDev/hermes-talk). It mounts the **same FastAPI router** the Hermes dashboard's Talk tab uses (`dashboard/plugin_api.py`) behind its own uvicorn process, so the mobile UI works independently of the dashboard — the dashboard can be down and this still talks.
 
-The frontend is a plain vanilla-JS lift of the dashboard's `TalkTransport` (duplex WebRTC: mint an ephemeral secret → dial OpenAI directly → `oai-events` data channel → tool relay → run polling), with a **Live2D avatar** that lip-syncs to the agent's voice.
+The frontend is a plain vanilla-JS lift of the dashboard's `TalkTransport` (duplex WebRTC; Realtime mints an ephemeral secret and dials OpenAI directly, GPT-Live relays the offer server-side — see [Voice modes](#voice-modes)), with a **Live2D avatar** that lip-syncs to the agent's voice.
 
 ## Features
 
 - **Live2D avatar** (default free Haru model) with lip-sync driven by an `AnalyserNode` RMS tap on the agent's playback audio — no visemes, no per-word timing.
-- **Cascade voice** (hermes-talk's cloned-voice path) and **native** (WebRTC remote track) both supported; the avatar meters whichever is live.
+- **Cascade voice** (hermes-talk's cloned-voice path), **native** (WebRTC remote track), and **GPT-Live** all supported; the avatar meters whichever is live.
+
+## Voice modes
+
+The surface speaks whichever lane hermes-talk is configured for. Mode is a
+runtime config on the **server side** (`TALK_VOICE_MODE` in `~/.hermes/.env`);
+the client just reads the session's `voiceMode` and wires accordingly. No
+client change or redeploy is needed to flip modes — just the env value and a
+`talk-mobile.service` restart.
+
+- **`native`** (default) — OpenAI **Realtime**: the client mints an ephemeral `client_secret` server-side, then dials OpenAI directly over WebRTC.
+- **`live`** — **GPT-Live** (`gpt-live-1`), OpenAI's full-duplex successor: the client builds the WebRTC offer and POSTs it to the plugin's `/session` route, which relays it to `POST /v1/live/sessions` **server-side** — the raw API key never touches the browser, and the response carries only `{sessionId, sdp}`. Live mode talks the `session.*` event set (input/output transcript deltas, `delegation.created`) and dispatches delegated work through the **same** `/tool` + `/runs` lane Realtime tool-calls use. See the [hermes-talk GPT-Live fork](https://github.com/TheSmokeDev/hermes-talk) for the wire contract.
+
+To switch:
+
+```bash
+# ~/.hermes/.env
+TALK_VOICE_MODE=live      # or native
+systemctl --user restart talk-mobile.service
+```
+
+GPT-Live requires an OpenAI **project API key** on a paid (Tier 1+) API
+account (`TALK_OPENAI_API_KEY`); a ChatGPT/Codex-OAuth login is not
+GPT-Live-entitled (returns 403 "Voice session access denied").
 - **Idempotent teardown** — End / New Session can never strand the session (the `stop()` fix is upstreamed in [hermes-talk#130](https://github.com/TheSmokeDev/hermes-talk/pull/130)).
 - **No build step** — static files served fresh from disk; bump the `?v=N` cache-buster in `index.html` to deploy.
 
