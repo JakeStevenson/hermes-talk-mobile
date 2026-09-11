@@ -221,7 +221,7 @@
       // transport's postOffer do the mint.
       const isLive = status && status.voiceMode === "live";
       const session = isLive
-        ? { voiceMode: "live" }
+        ? { voiceMode: "live", voice: status.voice || "" }
         : await apiPost("/session", {});
       const t = new TalkTransport(session, {
         onStatus: (s) => setStatus(s, true),

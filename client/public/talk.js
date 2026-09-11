@@ -229,7 +229,7 @@ class TalkTransport {
         // non-ok with the detail text, so no explicit status check needed.
         const data = await apiFetchJSON("/session", {
           method: "POST",
-          body: JSON.stringify({ sdp: offer.sdp }),
+          body: JSON.stringify({ sdp: offer.sdp, voice: this.session.voice || "" }),
           headers: { "Content-Type": "application/json" },
         }, OFFER_TIMEOUT_MS);
         const answer = data && data.sdp;
