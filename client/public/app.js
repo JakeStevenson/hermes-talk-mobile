@@ -181,7 +181,7 @@
     try {
       const res = await apiFetchJSON("/status");
       status = res;
-      els.lane.textContent = "ready via " + describeSource(res.source);
+      els.lane.textContent = "ready via " + describeMode(res.voiceMode) + " (" + describeSource(res.source) + ")";
       setStatus(res.detail || "Ready", true);
       setConn("Connected", true);
     } catch (err) {

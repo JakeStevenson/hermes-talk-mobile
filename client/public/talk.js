@@ -52,6 +52,13 @@ function describeSource(source) {
   if (source === "codex-oauth") return "ChatGPT sign-in";
   return "not configured";
 }
+function describeMode(voiceMode) {
+  // Provider-from-mode: label reflects what TALK_VOICE_MODE chose,
+  // not which credential happens to back it.
+  if (voiceMode === "live") return "GPT-Live (OpenAI)";
+  if (voiceMode === "cascade") return "Cascade (ElevenLabs+TTS)";
+  return "Realtime (OpenAI)"; // native (default)
+}
 
 const API = "/api/plugins/hermes-talk";
 
