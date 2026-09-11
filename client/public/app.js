@@ -213,7 +213,16 @@
     phase = "starting";
     renderButton();
     try {
-      const session = await apiPost("/session", {});
+      // Live (GPT-Live) mode: there is no upfront ephemeral mint — the
+      // transport builds the WebRTC offer and POSTs it (with the SDP) to
+      // /session, which relays to /v1/live/sessions and returns the answer.
+      // Calling /session here with just {} would 400 in live mode (an SDP
+      // offer is required), so pass a minimal live session and let the
+      // transport's postOffer do the mint.
+      const isLive = status && status.voiceMode === "live";
+      const session = isLive
+        ? { voiceMode: "live" }
+        : await apiPost("/session", {});
       const t = new TalkTransport(session, {
         onStatus: (s) => setStatus(s, true),
         onTranscript: appendTranscript,

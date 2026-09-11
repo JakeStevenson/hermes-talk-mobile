@@ -151,6 +151,12 @@ class TalkTransport {
     this.toolBatch = null;
     this.toolTail = Promise.resolve();
     this.cascade = session && session.voiceMode === "cascade";
+    // GPT-Live lane: the session was minted via the /session route relaying
+    // our SDP offer to POST /v1/live/sessions, and the response carries
+    // {sessionId, sdp} — no ephemeral secret, no offerUrl. Live mode talks a
+    // different event set (session.*) and dispatches delegated work through
+    // the SAME /tool + /runs lane Realtime tool-calls use.
+    this.live = session && session.voiceMode === "live";
     this.cascadeReq = null;
     this.cascadeReqs = new Set();
     this.pcmContext = null;
@@ -216,6 +222,21 @@ class TalkTransport {
     this.offerAbort = controller;
     const timer = window.setTimeout(() => controller.abort(), OFFER_TIMEOUT_MS);
     try {
+      if (this.live) {
+        // GPT-Live: relay the SDP offer through the plugin's /session route
+        // (which POSTs to /v1/live/sessions keeping the credential server-side)
+        // and read the provider's SDP answer back. apiFetchJSON throws on
+        // non-ok with the detail text, so no explicit status check needed.
+        const data = await apiFetchJSON("/session", {
+          method: "POST",
+          body: JSON.stringify({ sdp: offer.sdp }),
+          headers: { "Content-Type": "application/json" },
+        }, OFFER_TIMEOUT_MS);
+        const answer = data && data.sdp;
+        if (typeof answer !== "string" || !answer) throw new Error("GPT-Live returned no SDP answer.");
+        this.sessionId = data && data.sessionId;
+        return answer;
+      }
       const res = await fetch(this.session.offerUrl, {
         method: "POST",
         body: offer.sdp,
@@ -312,6 +333,75 @@ class TalkTransport {
     }
   }
 
+  /** Append a delegated task result into the GPT-Live conversation. */
+  sendCommentary(text, delegationId) {
+    if (!this.live) return;
+    this.send({
+      type: "session.commentary.append",
+      delegation_id: delegationId || null,
+      content: String(text || ""),
+    });
+  }
+
+  /** Accumulate the spoken transcript while a delegation is in flight. */
+  accumulateLiveTranscript(role, delta) {
+    if (!this.live || typeof delta !== "string" || !delta) return;
+    const key = role === "user" ? "userText" : "assistantText";
+    this[key] = (this[key] || "") + delta;
+  }
+
+  /** GPT-Live asked the backend to work: hand the transcript to the agent
+   *  lane, poll /runs, and speak the result back as commentary. */
+  handleDelegationCreated(event) {
+    if (!this.live || !event || !event.delegation) return;
+    const delegationId = event.delegation.id || null;
+    const userText = (this.userText || "").trim();
+    const assistantText = (this.assistantText || "").trim();
+    const prompt =
+      (userText ? "The operator asked: " + userText + "\n" : "") +
+      (assistantText ? "So far you said: " + assistantText + "\n" : "") +
+      "Handle the operator's request using your tools, then return the outcome you want said aloud.";
+    apiPost("/tool", { name: "delegate_task", arguments: { task: prompt } }, TOOL_TIMEOUT_MS)
+      .then((res) => {
+        const output = res && res.output ? String(res.output) : "(no output)";
+        if (this.live) {
+          const started = WORK_STARTED_RE.exec(output);
+          if (started) this.pollLiveRun(Number(started[1]), started[2], delegationId);
+          else this.sendCommentary(output, delegationId);
+        }
+      })
+      .catch((err) => {
+        this.sendCommentary("Delegation failed: " + errorText(err), delegationId);
+      });
+  }
+
+  /** Poll a background agent run and speak its result as commentary. */
+  pollLiveRun(runId, kind, delegationId) {
+    const startedAt = Date.now();
+    const cap = RUN_POLL_CAPS_MS[kind] || DEFAULT_RUN_CAP_MS;
+    const tick = async () => {
+      if (this.closed || this.live === false || Date.now() - startedAt > cap) return;
+      let run = null;
+      try {
+        const res = await apiFetchJSON("/runs");
+        const runs = (res && res.runs) || [];
+        for (let i = 0; i < runs.length; i++) {
+          if (Number(runs[i].runId) === runId) { run = runs[i]; break; }
+        }
+      } catch (e) {
+        window.setTimeout(tick, RUN_POLL_MS);
+        return;
+      }
+      if (!run || run.status === "running") {
+        window.setTimeout(tick, RUN_POLL_MS);
+        return;
+      }
+      const result = run.output || "(no output)";
+      this.sendCommentary(result, delegationId);
+    };
+    void tick();
+  }
+
   handleEvent(data) {
     if (this.closed) return;
     let event;
@@ -321,6 +411,38 @@ class TalkTransport {
       return;
     }
     switch (event.type) {
+      case "session.started":
+        // GPT-Live connected; the media track carries audio.
+        this.cb.onStatus && this.cb.onStatus("Connected: " + (event.session && event.session.id ? event.session.id : ""));
+        return;
+      case "session.created":
+        // Some GPT-Live builds emit this before session.started. Idempotent.
+        return;
+      case "session.closed":
+        this.cb.onStatus && this.cb.onStatus("Conversation ended.");
+        this.stop();
+        return;
+      case "session.input_transcript.delta":
+        // User speech fragment; stream it to the caption and accumulate it
+        // for the next delegation context.
+        if (event.delta) this.cb.onTranscript && this.cb.onTranscript("user", event.delta, false);
+        this.accumulateLiveTranscript("user", event && event.delta);
+        return;
+      case "session.output_transcript.delta":
+        // Assistant speech fragment.
+        if (event.delta) this.cb.onTranscript && this.cb.onTranscript("assistant", event.delta, false);
+        this.accumulateLiveTranscript("assistant", event && event.delta);
+        return;
+      case "session.delegation.created":
+        this.handleDelegationCreated(event);
+        return;
+      case "session.usage.updated":
+        // Usage ticker; nothing to render.
+        return;
+      case "session.error":
+        // Session-scoped error; surface detail when present.
+        if (event && event.error) this.handleError(event.error);
+        return;
       case "conversation.item.input_audio_transcription.completed":
         if (event.transcript) this.cb.onTranscript && this.cb.onTranscript("user", event.transcript, true);
         return;
